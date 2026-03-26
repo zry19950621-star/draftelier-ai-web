@@ -515,10 +515,16 @@ const LORA_STYLES = RAW_STYLES.map((style) => ({
   loraWeightContentsUrl: buildLoraWeightContentsUrl(buildLoraWeightPath(style.loraRun)),
 }))
 
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || ''
-const ANALYSIS_MODEL = 'gemini-2.5-flash'
-const IMAGE_MODEL = 'gemini-2.5-flash-image'
-const FALLBACK_IMAGE_MODEL = 'imagen-4.0-generate-001'
+const DEFAULT_API_BASE_URL = 'https://api2.qiandao.mom/v1'
+const DEFAULT_ANALYSIS_MODEL = 'gemini-3.1-pro-preview-h'
+const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview-c'
+const API_SETTINGS_STORAGE_KEY = 'draftelier-api-settings'
+const BOOTSTRAP_API_SETTINGS = {
+  baseUrl: import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL,
+  apiKey: import.meta.env.VITE_API_KEY || '',
+  analysisModel: import.meta.env.VITE_ANALYSIS_MODEL || DEFAULT_ANALYSIS_MODEL,
+  imageModel: import.meta.env.VITE_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
+}
 const MAX_UPLOAD_EDGE = 1440
 const MAX_GENERATED_EDGE = 1400
 const UPLOAD_QUALITY = 0.88
@@ -648,13 +654,15 @@ export default function App() {
   const [showUploadDisclosure, setShowUploadDisclosure] = useState(false)
   const [activePanel, setActivePanel] = useState(null)
   const [showIntro, setShowIntro] = useState(false)
+  const [showApiSettings, setShowApiSettings] = useState(false)
+  const [apiSettings, setApiSettings] = useState(() => ({ ...BOOTSTRAP_API_SETTINGS }))
 
   const fileInputRef = useRef(null)
   const canvasRef = useRef(null)
   const directionRef = useRef(null)
   const posterObjectUrlRef = useRef(null)
   const sketchObjectUrlRef = useRef(null)
-  const isApiConfigured = Boolean(apiKey)
+  const isApiConfigured = Boolean(apiSettings.baseUrl.trim() && apiSettings.apiKey.trim())
 
   useEffect(() => {
     return () => {
@@ -675,6 +683,32 @@ export default function App() {
       // ignore storage failures
     }
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const savedSettings = window.localStorage.getItem(API_SETTINGS_STORAGE_KEY)
+      if (!savedSettings) return
+      setApiSettings((current) => ({
+        ...current,
+        ...sanitizeApiSettings(safeJsonParse(savedSettings)),
+      }))
+    } catch {
+      // ignore storage failures
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(
+        API_SETTINGS_STORAGE_KEY,
+        JSON.stringify(sanitizeApiSettings(apiSettings)),
+      )
+    } catch {
+      // ignore storage failures
+    }
+  }, [apiSettings])
 
   useEffect(() => {
     if (!posterImage || !sourceImage || !rawSketchImage || !renderedStyle || isGenerating) return
@@ -737,6 +771,13 @@ export default function App() {
     throw new Error(lastError)
   }
 
+  const updateApiSetting = (key, value) => {
+    setApiSettings((current) => ({
+      ...current,
+      [key]: value,
+    }))
+  }
+
   const handleUpload = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -769,7 +810,7 @@ export default function App() {
 
     if (!isApiConfigured) {
       setErrorMsg(
-        'Gemini API key is not configured. Please set VITE_GEMINI_API_KEY before generating. / 尚未配置 Gemini API Key，请先设置 VITE_GEMINI_API_KEY。',
+        'API key is not configured. Fill in the API settings panel before generating. / 尚未配置 API Key，请先填写下方接口设置后再生成。',
       )
       return
     }
@@ -781,15 +822,18 @@ export default function App() {
 
     setIsGenerating(true)
     setErrorMsg('')
-    let sketchBase64 = null
     let currentOotd = null
 
     try {
-      const base64Data = sourceImage.split(',')[1]
-
       setLoadingStep('Evaluating Sartorial Profile... / 正在解析穿搭特征')
       try {
-        currentOotd = await requestDirectOotdAnalysis(sourceImage, sourceMimeType, selectedStyle)
+        currentOotd = await requestDirectOotdAnalysis(
+          sourceImage,
+          sourceMimeType,
+          selectedStyle,
+          apiSettings,
+          fetchWithRetry,
+        )
       } catch (error) {
         console.warn('Direct OOTD analysis failed:', error)
         currentOotd = null
@@ -798,81 +842,17 @@ export default function App() {
       currentOotd = sanitizeOotdAnalysis(currentOotd, selectedStyle)
       setOotdAnalysis(currentOotd)
 
-      try {
-        setLoadingStep('Initializing I2I Rendering Engine... / 启动图生图渲染引擎')
-        const i2iPayload = {
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `Transform this exact photo into a 2D HAND-DRAWN FASHION SKETCH.
-CRITICAL RULES:
-1. THIS IS A 2D ILLUSTRATION, NOT A PHOTOGRAPH. It MUST look like a traditional fashion sketch drawn on paper with artistic strokes.
-2. ABSOLUTE LIKENESS: You MUST preserve the exact face, expression, and body proportions of the original person.
-3. EXACT CLOTHING: Keep the exact same outfit details, fold, and fit.
-4. STYLE APPLICATION: Apply this artistic medium strictly: ${buildStyleRenderNotes(selectedStyle)}.
-5. PRESERVE FRAMING: Keep the same visible crop and full composition from the uploaded photo. If the photo shows the full outfit, bag, coat, phone, mirror, or room lines, keep them all in frame.
-6. BACKGROUND TREATMENT: Simplify the environment into elegant sketch lines and light tonal blocks instead of deleting it completely.
-7. DRAWING FEEL: Keep it poised, editorial, and atelier-like with subtle construction energy, not a photoreal selfie redraw or a close-up avatar portrait.
-8. NO TEXT: Do not include any designer names, house names, logos, atelier headers, signatures, labels, or printed text anywhere in the image.`,
-                },
-                {
-                  inlineData: { mimeType: sourceMimeType || 'image/jpeg', data: base64Data },
-                },
-              ],
-            },
-          ],
-          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-        }
+      setLoadingStep(`Rendering in ${selectedStyle.name} sketch style... / 正在渲染大师手稿`)
+      const generatedImageDataUrl = await requestFashionSketch(
+        sourceImage,
+        sourceMimeType,
+        selectedStyle,
+        currentOotd,
+        apiSettings,
+        fetchWithRetry,
+      )
 
-        const i2iResponse = await fetchWithRetry(
-          `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(i2iPayload),
-          },
-          2,
-        )
-
-        sketchBase64 = i2iResponse.candidates?.[0]?.content?.parts?.find((part) => part.inlineData)?.inlineData?.data
-      } catch (error) {
-        console.warn('Primary image generation failed, falling back to Imagen:', error)
-      }
-
-      if (!sketchBase64) {
-        setLoadingStep(`Rendering in ${selectedStyle.name} sketch style... / 正在渲染大师手稿`)
-        const finalPrompt = `A 2D HAND-DRAWN FASHION SKETCH of a person matching this EXACT description: [${currentOotd?.description || selectedStyle.editorialDesc}].
-CRITICAL INSTRUCTIONS:
-1. THIS IS A 2D ILLUSTRATION, NOT A PHOTOGRAPH.
-2. The face MUST be beautiful and match the description.
-3. The clothing and drawing style must strictly match: ${buildStyleRenderNotes(selectedStyle)}.
-4. Keep the same visible framing as the uploaded photo. If the source contains a full look, tote, coat, mirror, phone, or interior lines, preserve them.
-5. Feature elegant fashion proportions and an editorial pose without collapsing the scene into a close-up portrait.
-6. Turn the background into soft architectural sketch context or light paper-toned blocking instead of removing it completely.
-7. Allow subtle atelier construction marks, but no designer names, house names, logos, atelier headers, signatures, labels, or printed text.`
-
-        const generationData = await fetchWithRetry(
-          `https://generativelanguage.googleapis.com/v1beta/models/${FALLBACK_IMAGE_MODEL}:predict?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              instances: { prompt: finalPrompt },
-              parameters: { sampleCount: 1 },
-            }),
-          },
-        )
-
-        sketchBase64 = generationData.predictions?.[0]?.bytesBase64Encoded
-      }
-
-      if (!sketchBase64) {
-        throw new Error('Generation interrupted. Please try again. / 创作受到打断，请重试。')
-      }
-
-      const sketchUrl = await normalizeGeneratedImage(`data:image/png;base64,${sketchBase64}`)
+      const sketchUrl = await normalizeGeneratedImage(generatedImageDataUrl)
       replaceObjectUrl(sketchObjectUrlRef, sketchUrl, setRawSketchImage)
       setRenderedStyle(selectedStyle)
       setLoadingStep('Archiving your design portfolio... / 正在装裱视觉档案')
@@ -1571,19 +1551,116 @@ CRITICAL INSTRUCTIONS:
               </div>
             </div>
 
-            {!isApiConfigured && (
-              <div className="mb-8 border border-black bg-[#FAFAFA] p-4">
+            <div className="mb-8 border border-black bg-[#FAFAFA] p-4">
+              <div className="flex items-center justify-between gap-4">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
                   API Setup <span className="ml-2 font-normal tracking-widest text-gray-500">/ 接口配置</span>
                 </p>
-                <p className="mt-2 text-[11px] leading-relaxed text-gray-700">
-                  Set <code className="bg-black/5 px-1 py-0.5 text-[10px] text-black">VITE_GEMINI_API_KEY</code> before generating. On GitHub Pages the key is shipped to the browser, so please restrict it by HTTP referrer to your deployed domain.
-                </p>
-                <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
-                  生成前请先配置 <code className="bg-black/5 px-1 py-0.5 text-[10px] text-black">VITE_GEMINI_API_KEY</code>。如果部署到 GitHub Pages，密钥会暴露在前端代码中，请务必在 Google Cloud 中对最终域名做 HTTP referrer 限制。
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowApiSettings((current) => !current)}
+                  className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500 transition-colors hover:text-black"
+                >
+                  {showApiSettings ? 'Hide / 收起' : 'Edit / 编辑'}
+                </button>
               </div>
-            )}
+              <p className="mt-2 text-[11px] leading-relaxed text-gray-700">
+                This site now uses your `api2.qiandao.mom` OpenAI-compatible endpoint. The API key is stored only in this browser, not committed to GitHub.
+              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
+                现在网页已切到你提供的 `api2.qiandao.mom` 接口。API Key 只保存在当前浏览器本地，不会提交到 GitHub 仓库里。
+              </p>
+
+              {(showApiSettings || !isApiConfigured) && (
+                <div className="mt-4 grid gap-4">
+                  <label className="block">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
+                      Base URL
+                    </span>
+                    <input
+                      type="text"
+                      value={apiSettings.baseUrl}
+                      onChange={(event) => updateApiSetting('baseUrl', event.target.value)}
+                      className="mt-2 w-full border border-black bg-white px-3 py-3 text-[12px] text-black outline-none transition-colors focus:border-gray-500"
+                      placeholder={DEFAULT_API_BASE_URL}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
+                      API Key
+                    </span>
+                    <input
+                      type="password"
+                      value={apiSettings.apiKey}
+                      onChange={(event) => updateApiSetting('apiKey', event.target.value)}
+                      className="mt-2 w-full border border-black bg-white px-3 py-3 text-[12px] text-black outline-none transition-colors focus:border-gray-500"
+                      placeholder="sk-..."
+                      autoComplete="off"
+                    />
+                  </label>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="block">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
+                        Analysis Model
+                      </span>
+                      <input
+                        type="text"
+                        value={apiSettings.analysisModel}
+                        onChange={(event) => updateApiSetting('analysisModel', event.target.value)}
+                        className="mt-2 w-full border border-black bg-white px-3 py-3 text-[12px] text-black outline-none transition-colors focus:border-gray-500"
+                        placeholder={DEFAULT_ANALYSIS_MODEL}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
+                        Image Model
+                      </span>
+                      <input
+                        type="text"
+                        value={apiSettings.imageModel}
+                        onChange={(event) => updateApiSetting('imageModel', event.target.value)}
+                        className="mt-2 w-full border border-black bg-white px-3 py-3 text-[12px] text-black outline-none transition-colors focus:border-gray-500"
+                        placeholder={DEFAULT_IMAGE_MODEL}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setApiSettings((current) => ({
+                          ...current,
+                          baseUrl: DEFAULT_API_BASE_URL,
+                          analysisModel: DEFAULT_ANALYSIS_MODEL,
+                          imageModel: DEFAULT_IMAGE_MODEL,
+                        }))
+                      }
+                      className="border border-black px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-black transition-colors hover:bg-black hover:text-white"
+                    >
+                      Use Provider Preset
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setApiSettings({
+                          baseUrl: DEFAULT_API_BASE_URL,
+                          apiKey: '',
+                          analysisModel: DEFAULT_ANALYSIS_MODEL,
+                          imageModel: DEFAULT_IMAGE_MODEL,
+                        })
+                      }
+                      className="border border-black px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-black transition-colors hover:bg-black hover:text-white"
+                    >
+                      Clear Local Key
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             <p className="mb-4 text-center text-[10px] uppercase tracking-[0.18em] text-gray-500 lg:mb-0">
               {HAS_UNLIMITED_ACCESS
@@ -2112,31 +2189,96 @@ function drawCoverCrop(context, image, dx, dy, dWidth, dHeight) {
   context.drawImage(image, sx, sy, sw, sh, dx, dy, dWidth, dHeight)
 }
 
-async function requestDirectOotdAnalysis(sourceImage, sourceMimeType, style) {
+async function requestDirectOotdAnalysis(sourceImage, sourceMimeType, style, apiSettings, fetchWithRetry) {
   const base64Data = String(sourceImage || '').split(',')[1]
   if (!base64Data) throw new Error('Missing image data for analysis.')
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [
+  const data = await requestOpenAiChatCompletion(
+    {
+      apiSettings,
+      model: apiSettings.analysisModel || DEFAULT_ANALYSIS_MODEL,
+      messages: [
         {
-          parts: [
-            { text: buildDirectAnalysisPrompt() },
-            { inlineData: { mimeType: sourceMimeType || 'image/jpeg', data: base64Data } },
+          role: 'user',
+          content: [
+            { type: 'text', text: buildDirectAnalysisPrompt() },
+            { type: 'image_url', image_url: { url: `data:${sourceMimeType || 'image/jpeg'};base64,${base64Data}` } },
           ],
         },
       ],
-    }),
-  })
+    },
+    fetchWithRetry,
+  )
 
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Direct analysis failed.')
-
-  let analysisText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}'
+  let analysisText = extractAssistantText(data?.choices?.[0]?.message?.content) || '{}'
   analysisText = analysisText.replace(/```json/gi, '').replace(/```/g, '').trim()
   return sanitizeOotdAnalysis(safeJsonParse(analysisText), style)
+}
+
+async function requestFashionSketch(sourceImage, sourceMimeType, style, ootd, apiSettings, fetchWithRetry) {
+  const base64Data = String(sourceImage || '').split(',')[1]
+  if (!base64Data) throw new Error('Missing image data for generation.')
+
+  const generationPrompt = [
+    'Transform this exact uploaded photo into a 2D hand-drawn fashion sketch.',
+    'Return only one generated image and no explanatory text.',
+    'Keep the same face identity, hairstyle, skin tone, pose, framing, body proportions, and outfit details from the original image.',
+    'Do not redesign the clothing. Apply style only through line quality, brushwork, shading language, and presentation finish.',
+    'Preserve the visible crop and composition from the uploaded photo.',
+    'Maintain elegant editorial energy and readable garment structure.',
+    `Style instructions: ${buildStyleRenderNotes(style)}`,
+    `Reference description: ${ootd?.description || style.editorialDesc}.`,
+    'No designer names, logos, signatures, watermarks, labels, or printed text anywhere in the image.',
+  ].join(' ')
+
+  const data = await requestOpenAiChatCompletion(
+    {
+      apiSettings,
+      model: apiSettings.imageModel || DEFAULT_IMAGE_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: generationPrompt },
+            { type: 'image_url', image_url: { url: `data:${sourceMimeType || 'image/jpeg'};base64,${base64Data}` } },
+          ],
+        },
+      ],
+    },
+    fetchWithRetry,
+  )
+
+  const messageText = extractAssistantText(data?.choices?.[0]?.message?.content)
+  const imageDataUrl = extractImageDataUrl(messageText)
+  if (!imageDataUrl) {
+    throw new Error('Image generation did not return an image payload. / 当前接口没有返回可用图片。')
+  }
+  return imageDataUrl
+}
+
+async function requestOpenAiChatCompletion({ apiSettings, model, messages }, fetchWithRetry) {
+  const baseUrl = normalizeApiBaseUrl(apiSettings.baseUrl)
+  const apiKey = String(apiSettings.apiKey || '').trim()
+  if (!baseUrl || !apiKey) {
+    throw new Error('Missing API base URL or API key. / 缺少 API 地址或 API Key。')
+  }
+
+  return fetchWithRetry(
+    `${baseUrl}/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: false,
+      }),
+    },
+    2,
+  )
 }
 
 function buildDirectAnalysisPrompt() {
@@ -2394,6 +2536,38 @@ function safeJsonParse(value) {
   } catch {
     return null
   }
+}
+
+function sanitizeApiSettings(settings) {
+  if (!settings || typeof settings !== 'object') return { ...BOOTSTRAP_API_SETTINGS }
+  return {
+    baseUrl: String(settings.baseUrl || BOOTSTRAP_API_SETTINGS.baseUrl).trim(),
+    apiKey: String(settings.apiKey || '').trim(),
+    analysisModel: String(settings.analysisModel || BOOTSTRAP_API_SETTINGS.analysisModel).trim(),
+    imageModel: String(settings.imageModel || BOOTSTRAP_API_SETTINGS.imageModel).trim(),
+  }
+}
+
+function normalizeApiBaseUrl(baseUrl) {
+  return String(baseUrl || '').trim().replace(/\/+$/, '')
+}
+
+function extractAssistantText(content) {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item?.type === 'text') return item.text || ''
+      return ''
+    })
+    .join('\n')
+    .trim()
+}
+
+function extractImageDataUrl(text) {
+  const match = String(text || '').match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/i)
+  return match ? match[0] : ''
 }
 
 async function prepareUploadImage(file) {

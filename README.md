@@ -16,15 +16,18 @@ npm install
 npm run dev
 ```
 
-## Environment
+## API Configuration
 
-在项目根目录创建 `.env.local`：
+这个版本默认适配 OpenAI-compatible 接口，例如：
 
 ```bash
-VITE_GEMINI_API_KEY=your_google_ai_api_key
+VITE_API_BASE_URL=https://api2.qiandao.mom/v1
+VITE_API_KEY=your_api_key
+VITE_ANALYSIS_MODEL=gemini-3.1-pro-preview-h
+VITE_IMAGE_MODEL=gemini-3.1-flash-image-preview-c
 ```
 
-注意：这个站点是纯前端部署，若直接部署到 GitHub Pages，`VITE_GEMINI_API_KEY` 会被打进浏览器端代码里，因此请务必在 Google Cloud / Gemini API 控制台里把 Key 限制到你的最终域名（HTTP referrer 限制）。
+更安全的做法是：不要把真实 Key 写进公开仓库或 GitHub Actions secrets 再打包到前端里。当前站点支持在浏览器里本地保存 API Key，因此部署到 GitHub Pages 后，推荐直接在网页的 `API Setup` 面板里填写，这样不会把密钥提交到仓库。
 
 ## Build
 
