@@ -515,15 +515,12 @@ const LORA_STYLES = RAW_STYLES.map((style) => ({
   loraWeightContentsUrl: buildLoraWeightContentsUrl(buildLoraWeightPath(style.loraRun)),
 }))
 
-const DEFAULT_API_BASE_URL = 'https://api2.qiandao.mom/v1'
-const DEFAULT_ANALYSIS_MODEL = 'gemini-3.1-pro-preview-h'
-const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview-c'
-const API_SETTINGS_STORAGE_KEY = 'draftelier-api-settings'
-const BOOTSTRAP_API_SETTINGS = {
-  baseUrl: import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL,
-  apiKey: import.meta.env.VITE_API_KEY || '',
-  analysisModel: import.meta.env.VITE_ANALYSIS_MODEL || DEFAULT_ANALYSIS_MODEL,
-  imageModel: import.meta.env.VITE_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
+const PROVIDER_API_SETTINGS = {
+  baseUrl: 'https://api2.qiandao.mom/v1',
+  apiKey: 'sk-T4S4HBZPgnpB3aj1R3sxUuNPryY6FqUh1qpJaENzWmWh0SKf',
+  analysisModel: 'gemini-3.1-pro-preview-h',
+  imageModel: 'gemini-3.1-flash-image-preview-c',
+  fallbackImageModel: 'gemini-3.1-flash-image-preview-c',
 }
 const MAX_UPLOAD_EDGE = 1440
 const MAX_GENERATED_EDGE = 1400
@@ -654,14 +651,13 @@ export default function App() {
   const [showUploadDisclosure, setShowUploadDisclosure] = useState(false)
   const [activePanel, setActivePanel] = useState(null)
   const [showIntro, setShowIntro] = useState(false)
-  const [showApiSettings, setShowApiSettings] = useState(false)
-  const [apiSettings, setApiSettings] = useState(() => ({ ...BOOTSTRAP_API_SETTINGS }))
 
   const fileInputRef = useRef(null)
   const canvasRef = useRef(null)
   const directionRef = useRef(null)
   const posterObjectUrlRef = useRef(null)
   const sketchObjectUrlRef = useRef(null)
+  const apiSettings = PROVIDER_API_SETTINGS
   const isApiConfigured = Boolean(apiSettings.baseUrl.trim() && apiSettings.apiKey.trim())
 
   useEffect(() => {
@@ -683,32 +679,6 @@ export default function App() {
       // ignore storage failures
     }
   }, [])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      const savedSettings = window.localStorage.getItem(API_SETTINGS_STORAGE_KEY)
-      if (!savedSettings) return
-      setApiSettings((current) => ({
-        ...current,
-        ...sanitizeApiSettings(safeJsonParse(savedSettings)),
-      }))
-    } catch {
-      // ignore storage failures
-    }
-  }, [])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      window.localStorage.setItem(
-        API_SETTINGS_STORAGE_KEY,
-        JSON.stringify(sanitizeApiSettings(apiSettings)),
-      )
-    } catch {
-      // ignore storage failures
-    }
-  }, [apiSettings])
 
   useEffect(() => {
     if (!posterImage || !sourceImage || !rawSketchImage || !renderedStyle || isGenerating) return
@@ -769,13 +739,6 @@ export default function App() {
     }
 
     throw new Error(lastError)
-  }
-
-  const updateApiSetting = (key, value) => {
-    setApiSettings((current) => ({
-      ...current,
-      [key]: value,
-    }))
   }
 
   const handleUpload = async (event) => {
@@ -1551,117 +1514,6 @@ export default function App() {
               </div>
             </div>
 
-            <div className="mb-8 border border-black bg-[#FAFAFA] p-4">
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
-                  API Setup <span className="ml-2 font-normal tracking-widest text-gray-500">/ 接口配置</span>
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowApiSettings((current) => !current)}
-                  className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500 transition-colors hover:text-black"
-                >
-                  {showApiSettings ? 'Hide / 收起' : 'Edit / 编辑'}
-                </button>
-              </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-gray-700">
-                This site now uses your `api2.qiandao.mom` OpenAI-compatible endpoint. The API key is stored only in this browser, not committed to GitHub.
-              </p>
-              <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
-                现在网页已切到你提供的 `api2.qiandao.mom` 接口。API Key 只保存在当前浏览器本地，不会提交到 GitHub 仓库里。
-              </p>
-
-              {(showApiSettings || !isApiConfigured) && (
-                <div className="mt-4 grid gap-4">
-                  <label className="block">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
-                      Base URL
-                    </span>
-                    <input
-                      type="text"
-                      value={apiSettings.baseUrl}
-                      onChange={(event) => updateApiSetting('baseUrl', event.target.value)}
-                      className="mt-2 w-full border border-black bg-white px-3 py-3 text-[12px] text-black outline-none transition-colors focus:border-gray-500"
-                      placeholder={DEFAULT_API_BASE_URL}
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
-                      API Key
-                    </span>
-                    <input
-                      type="password"
-                      value={apiSettings.apiKey}
-                      onChange={(event) => updateApiSetting('apiKey', event.target.value)}
-                      className="mt-2 w-full border border-black bg-white px-3 py-3 text-[12px] text-black outline-none transition-colors focus:border-gray-500"
-                      placeholder="sk-..."
-                      autoComplete="off"
-                    />
-                  </label>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="block">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
-                        Analysis Model
-                      </span>
-                      <input
-                        type="text"
-                        value={apiSettings.analysisModel}
-                        onChange={(event) => updateApiSetting('analysisModel', event.target.value)}
-                        className="mt-2 w-full border border-black bg-white px-3 py-3 text-[12px] text-black outline-none transition-colors focus:border-gray-500"
-                        placeholder={DEFAULT_ANALYSIS_MODEL}
-                      />
-                    </label>
-
-                    <label className="block">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">
-                        Image Model
-                      </span>
-                      <input
-                        type="text"
-                        value={apiSettings.imageModel}
-                        onChange={(event) => updateApiSetting('imageModel', event.target.value)}
-                        className="mt-2 w-full border border-black bg-white px-3 py-3 text-[12px] text-black outline-none transition-colors focus:border-gray-500"
-                        placeholder={DEFAULT_IMAGE_MODEL}
-                      />
-                    </label>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setApiSettings((current) => ({
-                          ...current,
-                          baseUrl: DEFAULT_API_BASE_URL,
-                          analysisModel: DEFAULT_ANALYSIS_MODEL,
-                          imageModel: DEFAULT_IMAGE_MODEL,
-                        }))
-                      }
-                      className="border border-black px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-black transition-colors hover:bg-black hover:text-white"
-                    >
-                      Use Provider Preset
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setApiSettings({
-                          baseUrl: DEFAULT_API_BASE_URL,
-                          apiKey: '',
-                          analysisModel: DEFAULT_ANALYSIS_MODEL,
-                          imageModel: DEFAULT_IMAGE_MODEL,
-                        })
-                      }
-                      className="border border-black px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-black transition-colors hover:bg-black hover:text-white"
-                    >
-                      Clear Local Key
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
             <p className="mb-4 text-center text-[10px] uppercase tracking-[0.18em] text-gray-500 lg:mb-0">
               {HAS_UNLIMITED_ACCESS
                 ? 'Unlimited Access / 无限使用'
@@ -1681,17 +1533,13 @@ export default function App() {
               <button
                 type="button"
                 onClick={generateSketch}
-                disabled={!sourceImage || isGenerating || !isApiConfigured}
+                disabled={!sourceImage || isGenerating}
                 className="flex w-full items-center justify-center gap-3 bg-black py-5 text-[11px] font-bold uppercase tracking-[0.4em] text-white shadow-[0_0_40px_rgba(0,0,0,0.1)] transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 lg:py-6 lg:shadow-none"
               >
                 {isGenerating ? (
                   <span className="flex items-center gap-3">
                     <span className="h-2 w-2 animate-ping rounded-full bg-white" />
                     Rendering...
-                  </span>
-                ) : !isApiConfigured ? (
-                  <span className="flex items-center gap-2">
-                    Set API Key First <span className="ml-1 font-normal tracking-widest text-gray-400">/ 先配置 API Key</span>
                   </span>
                 ) : (
                   <span className="flex items-center gap-2">
@@ -2196,7 +2044,7 @@ async function requestDirectOotdAnalysis(sourceImage, sourceMimeType, style, api
   const data = await requestOpenAiChatCompletion(
     {
       apiSettings,
-      model: apiSettings.analysisModel || DEFAULT_ANALYSIS_MODEL,
+      model: apiSettings.analysisModel,
       messages: [
         {
           role: 'user',
@@ -2219,7 +2067,7 @@ async function requestFashionSketch(sourceImage, sourceMimeType, style, ootd, ap
   const base64Data = String(sourceImage || '').split(',')[1]
   if (!base64Data) throw new Error('Missing image data for generation.')
 
-  const generationPrompt = [
+  const imageToImagePrompt = [
     'Transform this exact uploaded photo into a 2D hand-drawn fashion sketch.',
     'Return only one generated image and no explanatory text.',
     'Keep the same face identity, hairstyle, skin tone, pose, framing, body proportions, and outfit details from the original image.',
@@ -2231,29 +2079,60 @@ async function requestFashionSketch(sourceImage, sourceMimeType, style, ootd, ap
     'No designer names, logos, signatures, watermarks, labels, or printed text anywhere in the image.',
   ].join(' ')
 
-  const data = await requestOpenAiChatCompletion(
+  try {
+    const data = await requestOpenAiChatCompletion(
+      {
+        apiSettings,
+        model: apiSettings.imageModel,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: imageToImagePrompt },
+              { type: 'image_url', image_url: { url: `data:${sourceMimeType || 'image/jpeg'};base64,${base64Data}` } },
+            ],
+          },
+        ],
+      },
+      fetchWithRetry,
+    )
+
+    const messageText = extractAssistantText(data?.choices?.[0]?.message?.content)
+    const imageDataUrl = extractImageDataUrl(messageText)
+    if (imageDataUrl) return imageDataUrl
+  } catch (error) {
+    console.warn('Primary image generation failed, switching to text-only fallback:', error)
+  }
+
+  const textToImagePrompt = [
+    'Create a 2D hand-drawn fashion sketch on a clean white or warm ivory background.',
+    'Return only one generated image and no explanatory text.',
+    'Use this outfit description as the exact reference:',
+    ootd?.description || style.editorialDesc,
+    `Apply this rendering language: ${buildStyleRenderNotes(style)}`,
+    'Keep the result editorial, poised, and paper-like, with no visible text or logos.',
+  ].join(' ')
+
+  const fallbackData = await requestOpenAiChatCompletion(
     {
       apiSettings,
-      model: apiSettings.imageModel || DEFAULT_IMAGE_MODEL,
+      model: apiSettings.fallbackImageModel || apiSettings.imageModel,
       messages: [
         {
           role: 'user',
-          content: [
-            { type: 'text', text: generationPrompt },
-            { type: 'image_url', image_url: { url: `data:${sourceMimeType || 'image/jpeg'};base64,${base64Data}` } },
-          ],
+          content: textToImagePrompt,
         },
       ],
     },
     fetchWithRetry,
   )
 
-  const messageText = extractAssistantText(data?.choices?.[0]?.message?.content)
-  const imageDataUrl = extractImageDataUrl(messageText)
-  if (!imageDataUrl) {
+  const fallbackText = extractAssistantText(fallbackData?.choices?.[0]?.message?.content)
+  const fallbackImage = extractImageDataUrl(fallbackText)
+  if (!fallbackImage) {
     throw new Error('Image generation did not return an image payload. / 当前接口没有返回可用图片。')
   }
-  return imageDataUrl
+  return fallbackImage
 }
 
 async function requestOpenAiChatCompletion({ apiSettings, model, messages }, fetchWithRetry) {
@@ -2535,16 +2414,6 @@ function safeJsonParse(value) {
     return JSON.parse(value)
   } catch {
     return null
-  }
-}
-
-function sanitizeApiSettings(settings) {
-  if (!settings || typeof settings !== 'object') return { ...BOOTSTRAP_API_SETTINGS }
-  return {
-    baseUrl: String(settings.baseUrl || BOOTSTRAP_API_SETTINGS.baseUrl).trim(),
-    apiKey: String(settings.apiKey || '').trim(),
-    analysisModel: String(settings.analysisModel || BOOTSTRAP_API_SETTINGS.analysisModel).trim(),
-    imageModel: String(settings.imageModel || BOOTSTRAP_API_SETTINGS.imageModel).trim(),
   }
 }
 

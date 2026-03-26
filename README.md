@@ -18,16 +18,17 @@ npm run dev
 
 ## API Configuration
 
-这个版本默认适配 OpenAI-compatible 接口，例如：
+当前线上版本已经预接入第三方 OpenAI-compatible 接口，打开网页即可直接使用。
 
-```bash
-VITE_API_BASE_URL=https://api2.qiandao.mom/v1
-VITE_API_KEY=your_api_key
-VITE_ANALYSIS_MODEL=gemini-3.1-pro-preview-h
-VITE_IMAGE_MODEL=gemini-3.1-flash-image-preview-c
-```
+如果你后续要切换到别的接口，也可以改这些常量：
 
-更安全的做法是：不要把真实 Key 写进公开仓库或 GitHub Actions secrets 再打包到前端里。当前站点支持在浏览器里本地保存 API Key，因此部署到 GitHub Pages 后，推荐直接在网页的 `API Setup` 面板里填写，这样不会把密钥提交到仓库。
+- `/Users/zhengruyue/Documents/Playground/draftelier-ai-web/src/App.jsx`
+
+默认分工：
+
+- 穿搭解析：`gemini-3.1-pro-preview-h`
+- 图生图：`gemini-3.1-flash-image-preview-c`
+- 备用文生图：`gemini-3.1-flash-image-preview-c`
 
 ## Build
 
