@@ -18,17 +18,18 @@ npm run dev
 
 ## API Configuration
 
-当前线上版本已经预接入第三方 OpenAI-compatible 接口，打开网页即可直接使用。
+当前线上版本通过 Vercel Serverless Function 调用 Gemini API。Gemini 密钥只应配置在 Vercel 环境变量中，不要写入前端源码或 `VITE_` 变量。
 
-如果你后续要切换到别的接口，也可以改这些常量：
+本地或线上需要配置：
 
-- `/Users/zhengruyue/Documents/Playground/draftelier-ai-web/src/App.jsx`
+- `GEMINI_API_KEY`：服务端 Gemini API Key
+- `VITE_API_BASE_URL=/api/gemini`
 
 默认分工：
 
-- 穿搭解析：`gemini-3.1-pro-preview-h`
-- 图生图：`gemini-3.1-flash-image-preview-c`
-- 备用文生图：`gemini-3.1-flash-image-preview-c`
+- 穿搭解析：`gemini-3.1-flash-lite`
+- 图生图：`gemini-3.1-flash-image`
+- 备用文生图：`gemini-3.1-flash-image`
 
 ## Build
 

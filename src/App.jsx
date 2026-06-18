@@ -516,11 +516,11 @@ const LORA_STYLES = RAW_STYLES.map((style) => ({
 }))
 
 const PROVIDER_API_SETTINGS = {
-  baseUrl: 'https://api2.qiandao.mom/v1',
-  apiKey: 'sk-T4S4HBZPgnpB3aj1R3sxUuNPryY6FqUh1qpJaENzWmWh0SKf',
-  analysisModel: 'gemini-3.1-pro-preview-h',
-  imageModel: 'gemini-3.1-flash-image-preview-c',
-  fallbackImageModel: 'gemini-3.1-flash-image-preview-c',
+  baseUrl: import.meta.env.VITE_API_BASE_URL || '/api/gemini',
+  apiKey: '',
+  analysisModel: import.meta.env.VITE_ANALYSIS_MODEL || 'gemini-3.1-flash-lite',
+  imageModel: import.meta.env.VITE_IMAGE_MODEL || 'gemini-3.1-flash-image',
+  fallbackImageModel: import.meta.env.VITE_FALLBACK_IMAGE_MODEL || 'gemini-3.1-flash-image',
 }
 const MAX_UPLOAD_EDGE = 1440
 const MAX_GENERATED_EDGE = 1400
@@ -658,7 +658,7 @@ export default function App() {
   const posterObjectUrlRef = useRef(null)
   const sketchObjectUrlRef = useRef(null)
   const apiSettings = PROVIDER_API_SETTINGS
-  const isApiConfigured = Boolean(apiSettings.baseUrl.trim() && apiSettings.apiKey.trim())
+  const isApiConfigured = Boolean(apiSettings.baseUrl.trim())
 
   useEffect(() => {
     return () => {
@@ -773,7 +773,7 @@ export default function App() {
 
     if (!isApiConfigured) {
       setErrorMsg(
-        'API key is not configured. Fill in the API settings panel before generating. / 尚未配置 API Key，请先填写下方接口设置后再生成。',
+        'Generation service is not configured. / 生成服务尚未配置。',
       )
       return
     }
@@ -2138,18 +2138,20 @@ async function requestFashionSketch(sourceImage, sourceMimeType, style, ootd, ap
 async function requestOpenAiChatCompletion({ apiSettings, model, messages }, fetchWithRetry) {
   const baseUrl = normalizeApiBaseUrl(apiSettings.baseUrl)
   const apiKey = String(apiSettings.apiKey || '').trim()
-  if (!baseUrl || !apiKey) {
-    throw new Error('Missing API base URL or API key. / 缺少 API 地址或 API Key。')
+  if (!baseUrl) {
+    throw new Error('Missing API base URL. / 缺少 API 地址。')
   }
+
+  const headers = {
+    'Content-Type': 'application/json',
+  }
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`
 
   return fetchWithRetry(
     `${baseUrl}/chat/completions`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify({
         model,
         messages,
